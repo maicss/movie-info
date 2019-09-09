@@ -26,9 +26,10 @@ async function main () {
           console.log(newFileName)
           const { name, ext } = path.parse(newFileName)
           await createDir(path.join(moviesDir, name))
-          await moveFile(path.join(moviesDir, newFileName))
+          const size = await moveFile(path.join(moviesDir, newFileName))
           let fileInfo = {
             name: newFileName,
+            size,
             path: path.join(moviesDir, name)
           }
           const searchResult = await searchInfo(name)

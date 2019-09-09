@@ -1,4 +1,4 @@
-const fsPromise = require('fs').promises
+const fs = require('fs')
 const path = require('path')
 
 const axois = require('axios')
@@ -9,27 +9,56 @@ const requestResHandler = d => d.data
 const request = url => axois.get(url, { headers }).then(requestResHandler)
 const download = url => axois({ url, method: 'GET', responseType: 'stream', headers })
 
-const getDirFiles = dir => fsPromise.readdir(path.join(dir))
+const getDirFiles = dir => new Promise((resolve, reject) => fs.readdir(dir, (err, files) => {
+  if (err) return reject(err)
+  return resolve(files)
+}))
 
-const createDir = name => fsPromise.mkdir(path.join(name))
+const createDir = name => new Promise((resolve, reject) => fs.mkdir(name, err => {
+  if (err && err.errno === -4075) {
+    // 文件夹已存在
+    console.warn(`文件夹 【${name}】 已存在`)
+    // todo 三个选项：使用、删除或者直接跳过当前电影
+  }
+  if (err) return reject(err)
+  return resolve()
+}))
 
-const rmrf = dir => fsPromise.stat(path.join(dir)).then(stats =>
-  fsPromise.readdir(path.join(dir))
-    .then(files => Promise.all(files.map(file => fsPromise.stat(path.join(dir, file)).then(stats1 => {
-      if (stats1.isDirectory()) {
-        return rmrf(path.join(dir, file))
-      } else {
-        return fsPromise.unlink(path.join(dir, file))
-      }
-    }))).then(() => fsPromise.rmdir(path.join(dir))))
-).catch(e => Promise.resolve())
-
-const moveFile = filename => {
-  const { dir, base, name } = path.parse(filename)
-  return fsPromise.rename(filename, path.join(dir + '/' + name, base))
-}
+const rmrf = dir => new Promise((resolve, reject) => {
+  fs.stat(dir, (err, stats) => {
+    if (err) return reject(err)
+    if (stats.isDirectory()) {
+      fs.readdir(dir, (err1, files) => {
+        if (err1) return reject(err1)
+        if (files.length) {
+          files.forEach(file => rmrf(path.join(dir,file)))
+        } else {
+          fs.unlink(dir, err2 => {
+            if (err2) return reject(err2)
+            return resolve()
+          })
+        }
+      })
+    } else {
+      return reject(dir + 'is not a directory')
+    }
+  })
+})
 
 const b2Gb = bytes => bytes / Math.pow(1024, 3)
+
+const moveFile = filename => new Promise((resolve, reject) => {
+  const { dir, base, name } = path.parse(filename)
+
+  fs.rename(filename, path.join(dir + '/' + name, base), err => {
+    if (err) return reject(err)
+    fs.stat(path.join(dir + '/' + name, base), (err1, stats) => {
+      if (err1) return reject(err1)
+      return resolve(b2Gb(stats.size))
+    })
+  })
+})
+
 
 const isMovie = (name, stat) => {
   const ext = path.parse(name).ext
@@ -52,7 +81,7 @@ module.exports = {
   getDirFiles,
   createDir,
   isMovie,
-  rmrf,
+  // rmrf,
   moveFile,
   b2Gb,
   getDefinition,
