@@ -1,13 +1,15 @@
 const path = require('path')
 
-const rename = require('./rename')
-const { getDirFiles, createDir, isMovie, moveFile } = require('./tools')
-const { searchInfo, infoGetter, downloadPhotos, saveInfo } = require('./info-getter')
-const cli = require('./cli')
+const { getDirFiles, createDir, moveFile, handledMovie, rename } = require('./src/tools')
+const { searchInfo, infoGetter, downloadPhotos, saveInfo } = require('./src/info-getter')
+const cli = require('./src/cli')
 
 async function main () {
   const { argv } = process
-  let moviesDir = ''
+  let [nodePath, scriptPath, moviesDir, ...options] = argv
+  if (options.includes('--renew')) {
+
+  }
   if (argv[2]) {
     if (path.isAbsolute(argv[2])) {
       moviesDir = argv[2]
@@ -18,22 +20,27 @@ async function main () {
     return console.error('请输入路径')
   }
   try {
-    const files = await getDirFiles(moviesDir)
-    if (files.length) {
-      for (let file of files) {
-        if (isMovie(file)) {
-          const newFileName = await rename(file, moviesDir)
-          console.log(newFileName)
-          const { name, ext } = path.parse(newFileName)
-          await createDir(path.join(moviesDir, name))
-          const size = await moveFile(path.join(moviesDir, newFileName))
+    const fileInfoList = await getDirFiles(moviesDir)
+    if (fileInfoList.length) {
+      for (let fileInfoListElement of fileInfoList) {
+        const handled = await handledMovie(fileInfoListElement.path)
+        if (handled) {
+          console.info(fileInfoListElement.fileName, 'handled.')
+        } else {
+          const newFileName = await rename(fileInfoListElement.path)
+          const { name, ext, dir } = path.parse(newFileName)
+          if (!dir.includes(name)) {
+            await createDir(path.resolve(dir, name))
+            await moveFile(newFileName)
+          }
           let fileInfo = {
             name: newFileName,
-            size,
+            size: fileInfoListElement.size,
             path: path.join(moviesDir, name)
           }
           const searchResult = await searchInfo(name)
           if (searchResult.length) {
+            // todo 如果检索结果只有一个，直接写入，不选择，但是要获取到年份比较合适
             // 做一个没找到想要结果的占位符
             const cliChoices = searchResult.map(s => ({
               name: `${s.title} (${s.year})`,
@@ -44,6 +51,12 @@ async function main () {
             const _info = searchResult.filter(s => s.id === id)[0]
             if (_info) {
               fileInfo.douBanID = id
+              if (_info.episode) {
+                fileInfo.type = 'series'
+                fileInfo.episode = _info.episode
+              } else {
+                fileInfo.type = 'movie'
+              }
               fileInfo.thumbnail = _info.img
               fileInfo.year = _info.year
               const details = await infoGetter(id)
@@ -59,13 +72,13 @@ async function main () {
           } else {
             console.warn(`${name} 豆瓣检索结果为空`)
           }
-        } else {
-          console.log(`【${file}】 不是电影`)
         }
+
       }
     }
   } catch (e) {
-    console.error('\x1b[41m%s\x1b[0m', '[main]: ' + e)
+    console.error('\x1b[41m%s\x1b[0m', '[main]')
+    console.error(e)
   }
 }
 
